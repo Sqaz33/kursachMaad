@@ -1,58 +1,62 @@
-import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.stats import chi2_contingency
+import seaborn as sns
+import numpy as np
 
 # Загрузка данных
-file_path = "dataset/space_missions.csv"
-data = pd.read_csv(file_path)
+df = pd.read_csv('dataset/Space_Corrected.csv')
 
-# Предобработка данных
-data['MissionStatus'] = data['MissionStatus'].str.strip()
-success_rate = data.groupby('Company')['MissionStatus'].value_counts(normalize=True).unstack()
-mission_counts = data.groupby('Company')['MissionStatus'].value_counts().unstack()
+# Преобразование столбца 'Cost' в числовой формат (если там могут быть пропуски или ошибки)
+df['Cost'] = pd.to_numeric(df['Cost'], errors='coerce')
 
-# Хи-квадрат тест
-contingency_table = data.pivot_table(index='Company', columns='MissionStatus', aggfunc='size', fill_value=0)
-chi2, p, _, _ = chi2_contingency(contingency_table)
+# Преобразование столбца 'Status Mission' в бинарный формат (Success/Failure)
+df['Mission Success'] = df['Status Mission'].apply(lambda x: 1 if x == 'Success' else 0)
 
-# Streamlit дашборд
-st.title("Анализ гипотезы: Влияние компании на успех миссий")
-st.markdown("Гипотеза: Частота успешных запусков зависит от компании.")
+print(df.shape)
+# Фильтрация компаний, для которых есть данные о запуске (не пустые значения в столбце 'Cost')
+df = df.dropna(subset=['Cost'])
+print(df.shape)
 
-# Визуализация доли успехов
-st.subheader("Доля успешных миссий для каждой компании")
-fig, ax = plt.subplots(figsize=(12, 6))
-if 'Success' in success_rate.columns:
-    success_rate['Success'].plot(kind='bar', color='green', ax=ax)
-    ax.set_title('Доля успешных миссий для каждой компании')
-    ax.set_xlabel('Компания')
-    ax.set_ylabel('Доля успехов')
-    st.pyplot(fig)
-else:
-    st.warning("Нет данных о статусе 'Success' для построения графика.")
 
-# Таблица с количеством миссий
-st.subheader("Частоты успешных и неуспешных миссий")
-st.table(mission_counts)
+# Подсчитаем количество запусков для каждой компании
+launch_counts = df['Company Name'].value_counts()
 
-# Вывод результатов хи-квадрат теста
-st.subheader("Результаты статистического теста")
-st.markdown(f"**Хи-квадрат значение**: {chi2:.2f}")
-st.markdown(f"**p-значение**: {p:.4f}")
-if p < 0.05:
-    st.markdown("**Вывод:** Зависимость между компанией и успехом миссий статистически значима.")
-else:
-    st.markdown("**Вывод:** Зависимости между компанией и успехом миссий не выявлено.")
+# Оставляем только компании с более чем 1 запуском
+valid_companies = launch_counts[launch_counts >= 2].index
 
-# Дополнительный график: Успехи внутри компании
-selected_company = st.selectbox("Выберите компанию для анализа:", data['Company'].unique())
-company_data = data[data['Company'] == selected_company]
-company_status_counts = company_data['MissionStatus'].value_counts(normalize=True)
+# Фильтруем DataFrame, чтобы оставить только данные для этих компаний
+df = df[df['Company Name'].isin(valid_companies)]
 
-st.subheader(f"Успехи миссий компании {selected_company}")
-fig, ax = plt.subplots(figsize=(6, 6))
-company_status_counts.plot(kind='pie', autopct='%1.1f%%', startangle=90, ax=ax)
-ax.set_ylabel('')
-ax.set_title(f'Распределение статуса миссий: {selected_company}')
-st.pyplot(fig)
+# Уникальные компании после фильтрации
+companies = df['Company Name'].unique()
+
+# Определение количества строк и столбцов для подграфиков
+n_rows = int(np.ceil(len(companies) / 5))  # 3 графика в одном ряду
+n_cols = 5
+
+# Настройка графиков
+sns.set(style="whitegrid")
+fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows))
+axes = axes.flatten()  # Преобразуем axes в одномерный массив для удобства
+
+# Построение графиков для каждой компании
+for i, company in enumerate(companies):
+    company_data = df[df['Company Name'] == company]
+    
+    # Строим график зависимости стоимости от успешности миссии для каждой компании
+    sns.scatterplot(data=company_data, x='Cost', y='Mission Success', hue='Mission Success', palette='coolwarm', s=100, legend=None, ax=axes[i])
+
+    axes[i].set_xlabel('')  # Убираем подпись оси X
+    axes[i].set_ylabel('')  # Убираем подпись оси Y
+    axes[i].set_title('')  # Убираем название графика
+    
+    # Добавляем название компании на график
+    axes[i].text(0.5, 1.05, company, ha='center', va='bottom', fontsize=12, transform=axes[i].transAxes)
+
+# Удаляем лишние подграфики, если количество компаний меньше 3 * n_rows
+for j in range(i + 1, len(axes)):
+    fig.delaxes(axes[j])
+
+# Автоматическая подгонка оформления
+plt.tight_layout()
+plt.show()
